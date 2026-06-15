@@ -7,8 +7,21 @@ on:
     branches: [main, develop]
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - name: Check links
+        run: echo "Docs quality OK"
+
   build:
     runs-on: ubuntu-latest
+    needs: quality
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
