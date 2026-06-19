@@ -1,36 +1,99 @@
 ---
 title: '06 — Despliegue'
-description: 'Arquitectura de despliegue, CI/CD y monitoreo.'
+description: 'Contenedorización, orquestación y cómo levantar el sistema.'
 ---
 
 ## Arquitectura de despliegue
 
-| Componente | Tecnología | Repo | Puerto |
-|-----------|-----------|------|--------|
-| ETL | Python + pandas + NetworkX | `movicol-data` | — |
-| AI | FastAPI + PyTorch Geometric + LangChain | `movicol-ai` | 8000 |
-| Backend | NestJS + TypeORM + PostGIS + Socket.io | `movicol-backend` | 3001 |
-| Frontend | React 19 + Vite + Hero UI + Leaflet | `movicol-frontend` | 3000 |
-| Infra | Docker Compose | `movicol-infra` | — |
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   Frontend      │────▶│   Backend        │────▶│   AI Service    │
+│   React + Nginx │     │   NestJS         │     │   FastAPI       │
+│   :3000         │     │   :3001          │     │   :8000         │
+└─────────────────┘     └────────┬─────────┘     └────────┬────────┘
+                                 │                         │
+                                 ▼                         ▼
+                        ┌─────────────────┐       ┌───────────────┐
+                        │   PostgreSQL    │       │  GAT Model    │
+                        │   + PostGIS     │       │  + Graph      │
+                        │   :5432         │       └───────────────┘
+                        └─────────────────┘
+```
 
-## CI/CD (GitHub Actions)
-
-Cada repo tiene:
-1. **Push a develop/main** → Lint + Tests
-2. **Push a main** → Build Docker → Push a Docker Hub
-
-## Demo para jurados
+## Quick Start (Docker)
 
 ```bash
-git clone https://github.com/Colombo-labs/movicol-infra
 cd movicol-infra
+
+# Copiar variables de entorno
 cp .env.example .env
-docker compose up -d
-# http://localhost:3000
+# Editar .env → agregar OPENAI_API_KEY (opcional)
+
+# Levantar todo el stack
+docker compose -f docker-compose.dev.yml up -d --build
+
+# Verificar
+docker compose ps
+curl http://localhost:8000/health
+curl http://localhost:3001/health
+open http://localhost:3000
 ```
+
+## Quick Start (Local sin Docker)
+
+```bash
+# Terminal 1: AI Service
+cd movicol-ai
+pip install -e ".[dev]"
+make dev    # http://localhost:8000
+
+# Terminal 2: Backend
+cd movicol-backend
+npm install
+npm run dev    # http://localhost:3001
+
+# Terminal 3: Frontend
+cd movicol-frontend
+npm install --legacy-peer-deps
+npm run dev    # http://localhost:3000
+```
+
+## Pipeline ML
+
+```bash
+cd movicol-ai
+
+# Limpiar grafo (raw → clean)
+make clean-graph
+
+# Entrenar modelo GAT
+make train
+
+# Verificar
+make test
+```
+
+## Servicios
+
+| Servicio | Puerto | Health | Swagger |
+|----------|--------|--------|---------|
+| Frontend | 3000 | — | — |
+| Backend | 3001 | `/health` | `/api/docs` |
+| AI | 8000 | `/health` | `/docs` |
+| PostGIS | 5432 | — | — |
+
+## Variables de entorno
+
+| Variable | Servicio | Requerida | Default |
+|----------|----------|-----------|---------|
+| `POSTGRES_USER` | DB | No | `movicol` |
+| `POSTGRES_PASSWORD` | DB | No | `movicol_dev` |
+| `OPENAI_API_KEY` | AI | No | (usa rule-based) |
+| `AI_SERVICE_URL` | Backend | No | `http://localhost:8000` |
+| `VITE_API_URL` | Frontend | No | `http://localhost:3001` |
 
 ## Monitoreo
 
-- Reentrenar GNN cuando se actualice el grafo
-- Actualizar datos trimestralmente
-- Docker Hub permite deploy en cualquier cloud
+- **Health checks:** Cada servicio expone `/health`
+- **Logs:** `docker compose logs -f [servicio]`
+- **Swagger:** AI en `:8000/docs`, Backend en `:3001/api/docs`

@@ -27,7 +27,31 @@ description: 'Construcción del grafo, feature engineering y normalización.'
 ## Pipeline ETL
 
 ```bash
+# Descarga de datos
 make download    # datos.gov.co → data/raw/
-make process     # data/raw/ → data/graphs/
-make load        # data/graphs/ → PostGIS
+
+# Construcción del grafo raw
+make process     # data/raw/ → data/graphs/ (MultiDiGraph 7,444 nodos, 41,990 aristas)
+
+# Limpieza para ML (en movicol-ai)
+make clean-graph # MultiDiGraph → Graph simple (7,290 nodos, 11,165 aristas)
+                 # - Extrae componente principal (97.9%)
+                 # - Simplifica aristas paralelas (conserva la más corta)
+                 # - Calcula centralidad (betweenness, closeness)
+                 # - Exporta features normalizadas (7290 × 8)
 ```
+
+## Normalización
+
+Z-score por feature (mean/std calculados sobre el grafo limpio):
+
+| Feature | Mean | Std |
+|---------|------|-----|
+| lat | 4.639 | 0.068 |
+| lon | -74.109 | 0.044 |
+| degree | 3.06 | 1.35 |
+| betweenness | 0.003 | 0.009 |
+| closeness | 0.041 | 0.007 |
+| siniestralidad | 0.016 | 0.221 |
+| fallecidos | 0.071 | 0.960 |
+| is_tm | 0.021 | 0.143 |
