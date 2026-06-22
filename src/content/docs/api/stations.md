@@ -1,93 +1,74 @@
 ---
 title: Estaciones
-description: Endpoints para consultar y gestionar estaciones y paraderos.
+description: Endpoints para consultar estaciones y paraderos del sistema.
 ---
 
-## Listar estaciones
+## Listar estaciones del grafo
 
 ```http
-GET /stations?page=1&limit=20
+GET /graph/stations?limit=100&offset=0
 ```
 
-Retorna la lista paginada de estaciones del grafo de transporte.
+Retorna estaciones del grafo de movilidad (SITP + TM).
 
 **Parámetros query:**
 
 | Param | Tipo | Default | Descripción |
 |-------|------|---------|-------------|
-| `page` | number | 1 | Página actual |
-| `limit` | number | 20 | Resultados por página |
+| `limit` | int | 100 | Máximo de resultados |
+| `offset` | int | 0 | Offset para paginación |
 
 **Respuesta 200:**
-
 ```json
-{
-  "data": [
-    {
-      "id": "TM_001",
-      "name": "Portal Norte",
-      "type": "transmilenio",
-      "lat": 4.7586,
-      "lng": -74.0453
-    }
-  ],
-  "meta": { "total": 7444, "page": 1, "limit": 20 }
-}
+[
+  {
+    "id": "P_CAN-TM",
+    "name": "P_CAN-TM",
+    "lat": 4.6469,
+    "lon": -74.0990,
+    "route": "",
+    "degree": 2,
+    "betweenness": 0
+  }
+]
 ```
 
 ---
 
-## Obtener estación por ID
+## Estaciones TM (GeoJSON)
 
 ```http
-GET /stations/:id
+GET /graph/tm/estaciones
 ```
 
-**Respuesta 200:**
+Retorna las 332 estaciones de TransMilenio con propiedades completas.
 
-```json
-{
-  "data": {
-    "id": "TM_001",
-    "name": "Portal Norte",
-    "type": "transmilenio",
-    "lat": 4.7586,
-    "lng": -74.0453,
-    "connections": ["TM_002", "TM_003"]
-  }
-}
-```
+**Respuesta 200:** GeoJSON FeatureCollection con propiedades:
+- `nom_est`: Nombre de la estación (ej: "AV. Chile")
+- `id_trazado`: ID de la troncal (ej: "TZ008")
+- `num_vag`: Número de vagones
+- `cap_biart`: Capacidad biarticulados
+- `esta_oper`: Estado operativo (1=activa)
 
 ---
 
-## Crear estación
+## Paraderos SITP (GeoJSON)
 
 ```http
-POST /stations
-Content-Type: application/json
+GET /graph/sitp/paraderos
 ```
 
-**Body:**
+Retorna ~2000 paraderos del SITP Zonal como GeoJSON FeatureCollection.
 
-```json
-{
-  "name": "Nueva Estación",
-  "type": "sitp",
-  "lat": 4.6500,
-  "lng": -74.1000
-}
+---
+
+## Búsqueda de estaciones (Frontend)
+
+El hook `useStationSearch` busca estaciones por nombre tanto en TM como en SITP:
+
+```typescript
+const { stations, isLoading, query, setQuery } = useStationSearch();
+// setQuery("Portal") → stations = [{id, name: "TM Portal Norte", lat, lon}]
 ```
 
-**Respuesta 201:**
-
-```json
-{
-  "data": {
-    "id": "SITP_500",
-    "name": "Nueva Estación",
-    "type": "sitp",
-    "lat": 4.6500,
-    "lng": -74.1000
-  }
-}
-```
+Cachea los datos en memoria tras la primera carga (~2300 estaciones).
