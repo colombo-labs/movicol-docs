@@ -1,0 +1,102 @@
+---
+title: "DOM-0005 HT1 — Planificador de Viajes: Trazado Exacto de Rutas"
+description: "Implementación del trazado exacto de rutas SITP/TM usando paraderos reales y OSRM en el módulo Planificar Viaje."
+---
+
+import { Aside, Badge } from '@astrojs/starlight/components';
+
+<Badge text="Sprint 4" variant="note" /> <Badge text="✅ Completada" variant="success" />
+
+## Objetivo
+
+El módulo de "Planificar Viaje" dibujaba los trayectos de SITP y TransMilenio como **líneas rectas** entre paraderos ("líneas voladoras"), saltando por encima de edificios, parques y manzanas. Esta historia técnica reemplaza ese comportamiento con trazados exactos sobre la malla vial de Bogotá.
+
+---
+
+## Diagnóstico — Causas Raíz
+
+Se identificaron **4 causas raíz** durante la investigación:
+
+| # | Causa | Impacto |
+|---|-------|---------|
+| 1 | Algoritmo Dijkstra sobre **grafo SITP desconectado** (689 islas sin puentes entre rutas) | Rutas absurdas cruzando la ciudad de extremo a extremo |
+| 2 | Estaciones de TM conectadas en **orden alfabético** del JSON fuente, no geográfico | Zigzags enormes entre estaciones que son físicamente continuas |
+| 3 | Contenedor Docker de `movicol-ai` sin **bind mounts** de código | Cambios de código no propagados al servidor en tiempo de desarrollo |
+| 4 | Algunos paraderos del GeoJSON de SITP tienen `latitud: null` | `TypeError: float() argument must be NoneType` al iniciar el servicio |
+
+---
+
+## Implementación
+
+### Repositorio: `movicol-ai`
+
+**`app/modules/route_prediction/graph_data.py`**
+
+- **Fix orden TM:** Cada troncal de TransMilenio ahora se ordena geográficamente con un algoritmo *Nearest Neighbor*: empieza en el extremo más alejado del centroide y encadena cada estación a la más cercana no visitada. Antes se conectaban en orden alfabético del JSON.
+- **Nueva función `build_sitp_graph()`:** Carga el GeoJSON oficial de paraderos SITP, los agrupa por ruta, los ordena por el campo `orden` (ej: `ALI001`, `ALI002`...) y construye el grafo de red. Filtra coordenadas `null` para evitar `TypeError`.
+
+**`app/modules/route_prediction/service.py`**
+
+- **`_load_sitp_route_data()`:** Se ejecuta en el constructor. Lee el GeoJSON de 42.601 paraderos de 689 rutas y construye el índice `{ruta: [paradas_ordenadas]}`.
+- **`_find_best_sitp_route()`:** Reemplaza Dijkstra para SITP. Dado un origen y destino, busca la ruta cuya parada más cercana al origen está ≤ 0.8 km Y cuya parada más cercana al destino también ≤ 0.8 km. Minimiza la suma de distancias de caminata.
+- **`_build_sitp_segments()`:** Toma el sub-recorrido entre parada de abordaje y bajada, lanza una sola petición multi-waypoint a OSRM (perfil `foot`) y extrae la geometría de calles de cada `leg`. Fallback a línea recta si OSRM falla.
+- **`_predict_transit()`:** Bifurca: modo `sitp` → pipeline de cobertura; modo `transmilenio` → grafo TM ordenado.
+- **Perfil OSRM:** `driving` → `foot` para evitar que el motor de carro desvíe la ruta buscando retornos vehiculares en vías exclusivas de buses.
+
+### Repositorio: `movicol-infra`
+
+**`docker-compose.yml`**
+
+```yaml
+# Servicio ai — bind mounts agregados
+volumes:
+  - ../movicol-ai/app:/app/app          # código Python en vivo
+  - ../movicol-ai/models:/app/models    # modelos GNN
+  - ../movicol-data:/app/movicol-data:ro # datos SITP (solo lectura)
+```
+
+- Se corrigió la imagen de `colombolabs/movicol-ai:latest` a `movicol-infra-ai` (imagen local) con `pull_policy: never`.
+
+---
+
+## Resultado
+
+```json
+// Antes (línea recta, grafo incorrecto)
+{
+  "route_code": "",
+  "n_segments": 6,
+  "stations": ["Temporal AV. Jiménez - Caracas", "..."],
+  "first_segment_ncoords": 2
+}
+
+// Después (ruta real, geometría de calle)
+{
+  "route_code": "A814",
+  "n_segments": 22,
+  "stations": ["Br. Centro Administrativo", "Estación San Victorino", "Br. Veracruz", "..."],
+  "first_segment_ncoords": 11
+}
+```
+
+---
+
+## Verificación
+
+1. Ejecutar `docker compose up` desde `movicol-infra` (los bind mounts ya están configurados).
+2. Abrir el módulo **Planificar Viaje** en el Frontend.
+3. Ingresar un origen y destino en Bogotá y seleccionar modo **SITP**.
+4. La línea verde en el mapa debe seguir la malla vial (curvas de avenidas y giros en esquinas).
+
+<Aside type="tip">
+**Resiliencia:** Si OSRM no responde, el sistema hace fallback automático a línea recta sin bloquear la aplicación.
+</Aside>
+
+---
+
+## Pull Requests
+
+| Repositorio | Rama | Enlace |
+|-------------|------|--------|
+| `movicol-ai` | `feature/DOM-0005-planificador-trazado-exacto` | [Ver PR en GitHub](https://github.com/colombo-labs/movicol-ai/pull/new/feature/DOM-0005-planificador-trazado-exacto) |
+| `movicol-infra` | `feature/DOM-0005-planificador-trazado-exacto` | [Ver PR en GitHub](https://github.com/colombo-labs/movicol-infra/pull/new/feature/DOM-0005-planificador-trazado-exacto) |
