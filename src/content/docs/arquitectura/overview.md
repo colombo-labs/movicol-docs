@@ -6,32 +6,49 @@ description: Diagrama y flujo de datos del sistema MoviCol.
 ## Diagrama de Servicios
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Frontend      │────▶│   Backend        │────▶│   AI Service    │
-│   React + Vite  │◀────│   NestJS         │◀────│   FastAPI       │
-│   :3000         │     │   :3001          │ HTTP│   :8000         │
-└─────────────────┘     └────────┬─────────┘     └────────┬────────┘
-                                 │                         │
-                        ┌────────┴─────────┐     ┌────────┴────────┐
-                        │   PostgreSQL     │     │  OSRM (externo) │
-                        │   + PostGIS      │     │  Routing real   │
-                        │   :5432          │     └─────────────────┘
-                        └──────────────────┘              │
-                                 │                ┌───────┴────────┐
-                        ┌────────┴─────────┐     │  GNN + ST-GAT  │
-                        │   Redis 7        │     │  Predicciones   │
-                        │   Cache :6379    │     └────────────────┘
-                        └──────────────────┘
+┌──────────────┐     ┌──────────────┐     ┌──────────────────────────────┐
+│   Frontend   │     │   Backend    │     │     ArcGIS FeatureServer     │
+│  React/Vite  │────▶│   NestJS     │────▶│  (datos.gov.co / SDM Bogotá) │
+│   :3000      │     │   :3001      │     │                              │
+└──────────────┘     └──────┬───────┘     │  • Paraderos SITP (7,694)    │
+                            │             │  • Paraderos×Ruta (41,038)   │
+                            │             │  • Estaciones TM (149)       │
+                            │             │  • Rutas TM (155)            │
+                            │             │  • Trazados TM (20)          │
+                            │             │  • Rutas SITP shapes (700)   │
+                            │             │  • Carril Preferencial (8)   │
+                            │             │  • Siniestros 2024 (12,908)  │
+                            │             │  • Siniestros×Localidad (20) │
+                            │             │  • Rutas Zonales SITP (700)  │
+                            │             └──────────────────────────────┘
+                            │
+                            ▼
+                     ┌──────────────┐
+                     │    Redis     │  Cache 24h (TTL 86400s)
+                     │    :6379     │  Keys: arcgis:sitp:*, arcgis:tm:*
+                     └──────────────┘
+                            │
+                            │
+┌──────────────┐     ┌──────┴───────┐     ┌──────────────┐
+│  PostGIS     │◀────│  AI Service  │────▶│    OSRM      │
+│   :5432      │     │  FastAPI     │     │  (público)   │
+│              │     │   :8000      │     │  HTTP        │
+│ • Grafo TM   │     │              │     └──────────────┘
+│ • Edges      │     │ • Predicción │
+│ • Heatmap    │     │ • Alternativas│    ┌──────────────┐
+└──────────────┘     │ • Congestión │───▶│  Nominatim   │
+                     │ • Alertas TM │    │  (geocoding) │
+                     └──────────────┘    └──────────────┘
 ```
 
 ## Flujo de datos
 
-1. **movicol-data**: Descarga datos de datos.gov.co + TransMilenio GIS, construye grafo NetworkX
-2. **PostGIS**: Almacena troncales, estaciones, paraderos con geometrías
-3. **movicol-ai**: Carga el grafo, entrena GNN (congestión) y ST-GAT (demanda), sirve predicciones
+1. **ArcGIS REST API**: 10 datasets de datos abiertos consumidos vía HTTP con cache Redis 24h
+2. **PostGIS**: Grafo de transporte para predicciones de congestión (GNN)
+3. **movicol-ai**: Carga el grafo, entrena GNN/ST-GAT, routing OSRM, sirve predicciones
 4. **OSRM** (externo): Routing vehicular real por calles de Bogotá con alternativas
-5. **movicol-backend**: Orquesta PostGIS + AI, cachea en Redis, expone API REST
-6. **movicol-frontend**: Mapa Leaflet con predicciones, planificador multi-modal, rutas en tiempo real
+5. **movicol-backend**: Orquesta ArcGIS + AI + Redis, expone API REST unificada
+6. **movicol-frontend**: Mapa Leaflet con predicciones, planificador multi-modal, datos en vivo
 
 ## Stack Tecnológico
 
@@ -43,7 +60,8 @@ description: Diagrama y flujo de datos del sistema MoviCol.
 | AI | FastAPI + NetworkX + PyTorch | FastAPI 0.100+ |
 | DB | PostgreSQL + PostGIS | 16 + 3.5 |
 | Cache | Redis | 7 Alpine |
-| Routing | OSRM (public API) | - |
+| Datos | ArcGIS FeatureServer (datos.gov.co) | REST API |
+| Routing | OSRM (public API, HTTP) | - |
 | POIs | Overpass API (OpenStreetMap) | - |
 | Clima | Open-Meteo API | - |
 | Alertas | Scraping transmilenio.gov.co | - |
@@ -52,9 +70,8 @@ description: Diagrama y flujo de datos del sistema MoviCol.
 
 | Fuente | Datos | Uso |
 |--------|-------|-----|
-| datos.gov.co | SITP paraderos, rutas, GeoJSON | Grafo base |
-| TransMilenio GIS (ArcGIS) | Troncales, estaciones | Mapa TM |
-| OSRM (router.project-osrm.org) | Routing vehículo | Rutas por calles |
+| **ArcGIS SDM Bogotá** | 10 datasets (paraderos, rutas, estaciones, siniestros) | Datos principales |
+| OSRM (router.project-osrm.org) | Routing vehículo/moto | Rutas por calles |
 | Overpass/OSM | POIs (cafés, cajeros, etc.) | "Cerca de tu destino" |
 | Open-Meteo | Temperatura actual | Barra de info |
 | transmilenio.gov.co | Alertas operacionales | Estado del sistema |
