@@ -7,56 +7,90 @@ description: Cómo levantar todo el proyecto MoviCol en tu máquina local.
 
 - Docker + Docker Compose
 - Node.js 20+
-- Python 3.11+
+- Python 3.9+ (system Python funciona)
 
-## Opción 1: Todo junto (demo)
+## Levantar servicios de infraestructura
 
 ```bash
-git clone https://github.com/Colombo-labs/movicol-infra
 cd movicol-infra
-cp .env.example .env  # Agregar OPENAI_API_KEY
-docker compose up -d
-# Abrir http://localhost:3000
+docker compose up -d   # PostgreSQL + PostGIS + Redis
 ```
 
-## Opción 2: Desarrollo (servicio por servicio)
+Verificar:
+- PostgreSQL: `localhost:5432`
+- Redis: `localhost:6379`
 
-### 1. Data (ETL)
-```bash
-cd movicol-data
-make install
-docker compose -f docker-compose.dev.yml up -d  # PostGIS
-make download   # Descarga datos de datos.gov.co
-make process    # Construye el grafo
-make load       # Carga a PostGIS
-```
+## AI Service (FastAPI)
 
-### 2. AI Service
 ```bash
 cd movicol-ai
-make install
-make dev        # FastAPI en http://localhost:8000
+pip install -e .   # o pip install -r requirements.txt
+uvicorn app.main:app --port 8000 --reload
 ```
 
-### 3. Backend
+Verificar: `curl http://localhost:8000/health`
+
+## Backend (NestJS)
+
 ```bash
 cd movicol-backend
 npm install
-npm run dev     # NestJS en http://localhost:3001
+npm run start:dev
 ```
 
-### 4. Frontend
+Verificar: `curl http://localhost:3001/health`
+
+## Frontend (React + Vite)
+
 ```bash
 cd movicol-frontend
-npm install --legacy-peer-deps
-npm run dev     # React en http://localhost:3000
+npm install
+npm run dev
 ```
+
+Abrir: `http://localhost:3000`
+
+## Verificar que todo funciona
+
+```bash
+# Todos los endpoints
+curl http://localhost:3001/graph/stats
+curl http://localhost:3001/graph/tm/rutas
+curl http://localhost:3001/graph/sitp/rutas
+curl -X POST http://localhost:3001/route-prediction \
+  -H "Content-Type: application/json" \
+  -d '{"origin":{"lat":4.65,"lng":-74.11},"destination":{"lat":4.72,"lng":-74.06},"departure_time":"2026-06-21T15:00:00","mode":"vehiculo"}'
+```
+
+## Tests
+
+```bash
+# AI
+cd movicol-ai && python -m pytest tests/ -v
+
+# Frontend
+cd movicol-frontend && npm test
+
+# Backend
+cd movicol-backend && npm test
+```
+
+## Variables de entorno
+
+| Variable | Servicio | Default |
+|----------|----------|---------|
+| `DATABASE_URL` | Backend | `postgresql://movicol:movicol@localhost:5432/movicol` |
+| `REDIS_URL` | Backend | `redis://localhost:6379` |
+| `AI_SERVICE_URL` | Backend | `http://localhost:8000` |
+| `VITE_API_URL` | Frontend | `http://localhost:3001` |
+| `GRAPH_PATH` | AI | `data/grafo_movilidad_bogota_enriched.graphml` |
 
 ## Puertos
 
-| Servicio | Puerto |
-|----------|--------|
-| Frontend | 3000 |
-| Backend | 3001 |
-| AI | 8000 |
-| PostGIS | 5432 |
+| Puerto | Servicio |
+|--------|----------|
+| 3000 | Frontend (Vite) |
+| 3001 | Backend (NestJS) |
+| 8000 | AI Service (FastAPI) |
+| 5432 | PostgreSQL |
+| 6379 | Redis |
